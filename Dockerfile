@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt && useradd --create-home --uid 10001 atlas
-COPY main.py ./
+COPY main.py strategy_analytics.py ./
 USER atlas
 
 # Long-running worker, NOT a Railway cron job.

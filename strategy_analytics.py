@@ -153,7 +153,7 @@ def read_from_db(db, account_id, days):
                     AND a.occurred_at IS NOT NULL ORDER BY a.occurred_at,a.activity_id""", (account_id,))
         fills = [dict(zip(('symbol','side','qty','price','at','order_id','bot'),row)) for row in cur.fetchall()]
         cur.execute("""SELECT symbol,qty,current_price FROM atlas_positions WHERE account_id=%s
-                    AND captured_at=(SELECT max(captured_at) FROM atlas_accounts WHERE account_id=%s)""",
+                    AND captured_at=(SELECT max(captured_at) FROM atlas_positions WHERE account_id=%s)""",
                     (account_id, account_id))
         positions = [dict(zip(('symbol','qty','current_price'),row)) for row in cur.fetchall()]
         cur.execute("""SELECT DISTINCT upper(replace(symbol,'/','')) FROM atlas_activities
@@ -162,6 +162,6 @@ def read_from_db(db, account_id, days):
         complex_symbols = [x[0] for x in cur.fetchall()]
     report = calculate(fills, positions, cutoff, now)
     report['data_quality']['corporate_action_symbols'] = complex_symbols
-    report['data_quality']['headline_pl_safe'] = not complex_symbols and report['data_quality']['problem_count']==0
+    report['data_quality']['headline_pl_safe'] = False  # historical fill coverage is not independently verified
     report['data_quality']['historical_fill_coverage_verified'] = False
     return report

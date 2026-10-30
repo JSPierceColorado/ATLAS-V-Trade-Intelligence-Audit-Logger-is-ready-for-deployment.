@@ -28,6 +28,8 @@ import psycopg
 import requests
 from psycopg.types.json import Jsonb
 
+from strategy_analytics import read_from_db as read_strategy_report
+
 LOG = logging.getLogger("atlas-v")
 UTC = timezone.utc
 ZERO = Decimal("0")
@@ -534,12 +536,23 @@ def cycle(db: psycopg.Connection, api: AlpacaReadOnly, cfg: Config) -> str:
             LOG.info("ATLAS_REPORT_1D %s", json.dumps(summary, default=str, separators=(",", ":")))
             put_state(db, aid, "last_report", iso(started))
         record_stage(db, aid, "hourly_analysis", publish_report)
+    # Strategy analytics runs independently: a failure cannot stop collection.
+    strategy_last = parse_time(get_state(db, aid, "last_strategy_report"))
+    if strategy_last is None or (started - strategy_last).total_seconds() >= cfg.report_every:
+        def publish_strategy_report():
+            summary = read_strategy_report(db, aid, 1)
+            LOG.info("ATLAS_STRATEGY_REPORT_1D %s", json.dumps(summary, default=str, separators=(",", ":")))
+            put_state(db, aid, "last_strategy_report", iso(started))
+        record_stage(db, aid, "strategy_analysis", publish_strategy_report)
     long_last = parse_time(get_state(db, aid, "last_long_report"))
     if long_last is None or (started - long_last).total_seconds() >= cfg.long_report_every:
         def publish_long_reports():
             for days in (7, 30):
                 summary = read_report(db, aid, days)
                 LOG.info("ATLAS_REPORT_%dD %s", days, json.dumps(summary, default=str, separators=(",", ":")))
+            for days in (7, 30, 90):
+                summary = read_strategy_report(db, aid, days)
+                LOG.info("ATLAS_STRATEGY_REPORT_%dD %s", days, json.dumps(summary, default=str, separators=(",", ":")))
             put_state(db, aid, "last_long_report", iso(started))
         record_stage(db, aid, "long_term_analysis", publish_long_reports)
     return aid
@@ -764,6 +777,8 @@ def report(db: psycopg.Connection, days: int, selected_account: str = "") -> Non
         LOG.warning("No snapshots collected yet. Run 'once' or start the service.")
     for aid in accounts:
         print(json.dumps(read_report(db, aid, days), indent=2, default=str), flush=True)
+        print(json.dumps({"strategy_report": read_strategy_report(db, aid, days)},
+                         indent=2, default=str), flush=True)
 
 
 def stop_handler(_signum, _frame) -> None:

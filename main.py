@@ -566,10 +566,10 @@ def read_report(db: psycopg.Connection, account_id: str, days: int) -> dict:
         cur.execute("""SELECT count(*),count(*) FILTER (WHERE status='filled'),
                     count(*) FILTER (WHERE status IN ('canceled','expired','rejected')),
                     count(*) FILTER (WHERE filled_qty>0 AND status<>'filled'),
-                    count(*) FILTER (WHERE bot='unattributed' AND lower(coalesce(client_order_id,'')) NOT LIKE 'v3trail-%')
+                    count(*) FILTER (WHERE bot='unattributed' AND lower(coalesce(client_order_id,'')) NOT LIKE 'v3trail-%%')
                     FROM atlas_orders WHERE account_id=%s AND submitted_at>=%s""", (account_id, cutoff))
         total, filled, failed, partial, unattributed = cur.fetchone()
-        cur.execute("""SELECT CASE WHEN lower(coalesce(client_order_id,'')) LIKE 'v3trail-%' THEN 'V3.1 Trailing Buyer' ELSE coalesce(bot,'unattributed') END,count(*),
+        cur.execute("""SELECT CASE WHEN lower(coalesce(client_order_id,'')) LIKE 'v3trail-%%' THEN 'V3.1 Trailing Buyer' ELSE coalesce(bot,'unattributed') END,count(*),
                     count(*) FILTER (WHERE side='buy'),count(*) FILTER (WHERE side='sell')
                     FROM atlas_orders WHERE account_id=%s AND submitted_at>=%s
                     GROUP BY 1 ORDER BY count(*) DESC""", (account_id, cutoff))

@@ -146,7 +146,9 @@ def read_from_db(db, account_id, days):
     cutoff = now-timedelta(days=days)
     with db.cursor() as cur:
         cur.execute("""SELECT a.symbol,a.side,a.qty,a.price,a.occurred_at,a.order_id,
-                           coalesce(o.bot,'unattributed')
+                           CASE WHEN lower(coalesce(o.client_order_id,'')) LIKE 'v3trail-%'
+                                THEN 'V3.1 Trailing Buyer'
+                                ELSE coalesce(o.bot,'unattributed') END
                     FROM atlas_activities a LEFT JOIN atlas_orders o
                     ON a.account_id=o.account_id AND a.order_id=o.order_id
                     WHERE a.account_id=%s AND a.activity_type='FILL'

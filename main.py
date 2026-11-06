@@ -337,6 +337,8 @@ class AlpacaReadOnly:
 def identify_bot(client_id: Any) -> str:
     """Proof-based attribution only. Never infer sellers from threshold alone."""
     value = str(client_id or "").lower()
+    if value.startswith("v3trail-"):
+        return "V3.1 Trailing Buyer"
     if value.startswith("v3dip-"):
         return "V3-buyer"
     if value.startswith("ab-"):
@@ -564,10 +566,10 @@ def read_report(db: psycopg.Connection, account_id: str, days: int) -> dict:
         cur.execute("""SELECT count(*),count(*) FILTER (WHERE status='filled'),
                     count(*) FILTER (WHERE status IN ('canceled','expired','rejected')),
                     count(*) FILTER (WHERE filled_qty>0 AND status<>'filled'),
-                    count(*) FILTER (WHERE bot='unattributed')
+                    count(*) FILTER (WHERE bot='unattributed' AND lower(coalesce(client_order_id,'')) NOT LIKE 'v3trail-%')
                     FROM atlas_orders WHERE account_id=%s AND submitted_at>=%s""", (account_id, cutoff))
         total, filled, failed, partial, unattributed = cur.fetchone()
-        cur.execute("""SELECT coalesce(bot,'unattributed'),count(*),
+        cur.execute("""SELECT CASE WHEN lower(coalesce(client_order_id,'')) LIKE 'v3trail-%' THEN 'V3.1 Trailing Buyer' ELSE coalesce(bot,'unattributed') END,count(*),
                     count(*) FILTER (WHERE side='buy'),count(*) FILTER (WHERE side='sell')
                     FROM atlas_orders WHERE account_id=%s AND submitted_at>=%s
                     GROUP BY 1 ORDER BY count(*) DESC""", (account_id, cutoff))
@@ -724,7 +726,7 @@ def read_report(db: psycopg.Connection, account_id: str, days: int) -> dict:
     gross_valid = len(corp) == 0 and len(invalid_symbols) == 0 and state.get("backfill_complete") == "true"
     loss_rebuys = [r for r in rebuys if r["prior_sale_gross_return_pct"] is not None
                     and r["prior_sale_gross_return_pct"] < 0]
-    return {
+    result = {
         "period_days": days, "account_id": account_id, "generated_at_utc": iso(now_utc()),
         "history": state,
         "orders": {"total": total, "filled": filled, "canceled_expired_rejected": failed,
@@ -763,6 +765,16 @@ def read_report(db: psycopg.Connection, account_id: str, days: int) -> dict:
         "complex_instrument_symbols": sorted(corp | invalid_symbols),
         "collector_errors_in_period": error_count,
     }
+    # ATLAS_V_INTELLIGENCE_V2: isolated report extension; collector unaffected.
+    try:
+        from audit_intelligence import read_intelligence
+        result["intelligence_v2"] = read_intelligence(db, account_id, days, now_utc())
+    except Exception as exc:
+        LOG.exception("Optional read-only intelligence report failed")
+        result["intelligence_v2"] = {"status": "unavailable",
+                                     "reason": type(exc).__name__,
+                                     "note": "Collector continues; optional report failed."}
+    return result
 
 
 def report(db: psycopg.Connection, days: int, selected_account: str = "") -> None:
